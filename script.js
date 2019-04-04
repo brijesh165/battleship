@@ -1,0 +1,747 @@
+// letiables
+let playerGrid, cpuGrid;
+
+//  Create the games grids and layout
+$(document).ready(function() {
+    gameInit();
+});
+
+function startGame() {
+    $(".text").text(output.start);
+    // Generate all possible hits for Player 1
+    for (let i = 0; i < 100; i++) bot.randPool[i] = i + 1;
+    highlightBoard();
+}
+
+function highlightBoard() {
+    if (playerGrid.ships.length == 0) {
+        $(".thirdPanel").find(".squares").off("mouseenter").off("mouseleave").off("click");
+    } else {
+        $(".thirdPanel").find(".squares").off("mouseenter mouseover").on("mouseenter mouseover", function() {
+            // only allow target highlight on none attempts
+            if(!($(this).hasClass("used"))) firstGrid.highlight(this);
+        });
+    }
+}
+
+
+// Object Constructors
+function Ships(name) {
+    this.name = name;
+    this.shipDetails = [{ "name": "carrier", "length": 5 },
+        { "name": "battleship", "length": 4 },
+        { "name": "cruiser", "length": 3 },
+        { "name": "destroyer", "length": 3 },
+        { "name": "frigate", "length": 2 }];
+    this.numOfShips = this.shipDetails.length;
+    this.ships = [];
+    this.currentShip = 0;
+    this.initShips = function() {
+        for(let i = 0; i < this.numOfShips; i++) {
+            this.ships[i] = new Ship(this.shipDetails[i].name);
+            this.ships[i].length = this.shipDetails[i].length;
+        }
+    };
+    this.removeShip = function(pos) {
+        this.numOfShips--;
+        $(".text").text(output.sunk(this.name, this.ships[pos].name));
+        if (this == playerGrid) bot.sizeOfShipSunk = this.ships[pos].length;
+        this.ships.splice(pos, 1);
+        if (this.ships.length == 0) {
+            $(".text").text(output.lost(this.name));
+            setTimeout(() => {
+                location.reload();
+            }, 5000);
+        }
+        return true;
+    };
+    this.shipHit = function(ship_name) {
+        $(".text").text(output.hit(this.name));
+        return true;
+    };
+    this.checkIfHit = function(point) {
+        for(let i = 0; i < this.numOfShips; i++) {
+            if (this.ships[i].checkLocation(point)) {
+                this.ships[i].getRidOf(this.ships[i].hitPoints.indexOf(point));
+                if (this.ships[i].hitPoints == 0)return this.removeShip(i);
+                else return this.shipHit(this.ships[i].name);
+            }
+        }
+        return false;
+    };
+}
+
+function Ship(name){
+    this.length = 0;
+    this.hitPoints = [];
+    this.populateHorzHits = function(start) {
+        for (let i = 0; i < this.length; i++, start++) {
+            this.hitPoints[i] = start;
+        }
+    };
+    this.populateVertHits = function(start) {
+        for (let i = 0; i < this.length; i++, start += 10) {
+            this.hitPoints[i] = start;
+        }
+    };
+    this.checkLocation = function(loc) {
+        for (let i = 0; i < this.length; i++) {
+            if (this.hitPoints[i] == loc) return true;
+        }
+        return false;
+    };
+    this.getRidOf = function(pos) {
+        this.hitPoints.splice(pos, 1);
+    }
+}
+
+// Console obj
+let output = {
+    "welcome": " > Welcome to BattleShip.  Choose the option get started.",
+    "not": " > This option is not currently available.",
+    "player1": " > Would you like to place your own ships or have the computer randomly do it for you?",
+    "self": " > Use the mouse and the Horizontal and Vertial buttons to place your ships on the first grid.",
+    "overlap": " > You can not overlap ships.  Please try again.",
+    "start": " > Use the mouse to fire on the second grid.  Good Luck!",
+    placed: function(name) { return " > Your " + name + " been placed."; },
+    hit: function(name, type) { return " > " + name + "'s ship was hit." },
+    miss: function(name) { return " > " + name + " missed!" },
+    sunk: function(user, type) { return " > " + user + "'s " + type + " was sunk!" },
+    lost: function(name) { return " > " + name + " has lost his ships!!  Game Over." },
+};
+
+// Objects for playing the game and bot for playing the computer
+let firstGrid = {
+    allHits: [],
+    highlight: function(square) {
+        $(square).addClass("target").off("mouseleave").on("mouseleave", function() {
+            $(this).removeClass("target");
+        });
+
+        $(square).off("click").on("click", function() {
+            if(!($(this).hasClass("used"))) {
+                $(this).removeClass("target").addClass("used");
+                let num = parseInt($(this).attr("class").slice(15));
+                let bool = cpuGrid.checkIfHit(num);
+                if (false == bool) {
+                    $(".text").text(output.miss("You"));
+                    $(this).children().addClass("miss");
+                } else $(this).children().addClass("hit");
+                $(".thirdPanel").find(".squares").off("mouseenter").off("mouseover").off("mouseleave").off("click");
+                // Check if it's the end of the game
+                if (cpuGrid.ships.length == 0) {
+                    $(".thirdPanel").find(".squares").off("mouseenter").off("mouseover").off("mouseleave").off("click");
+
+                } else setTimeout(bot.select, 800);
+            } // end of if
+        });
+    },
+};
+
+let secondGrid = {
+    currentHits: [],
+    checkAttempt: function(hit) {
+        if (playerGrid.checkIfHit(hit)) {
+            // Insert hit into an array for book keeping
+            secondGrid.currentHits.push(hit);
+            if (this.currentHits.length > 1) bot.prev_hit = true;
+            // display hit on the grid
+            $(".secondPanel").find("." + hit).children().addClass("hit");
+            if (secondGrid.hasShipBeenSunk()) {
+                // clear flags
+                bot.hunting = bot.prev_hit = false;
+                if (bot.sizeOfShipSunk == secondGrid.currentHits.length) {
+                    bot.num_misses = bot.back_count = bot.nextMove.length = secondGrid.currentHits.length = bot.sizeOfShipSunk = bot.currrent = 0;
+                } else {
+                    bot.special =  bot.case1 = true;
+                }
+                // check for special cases
+                if (bot.specialHits.length > 0) bot.special = true;
+                // check for end of game.
+            }
+            return true;
+        } else {
+            $(".secondPanel").find("." + hit).children().addClass("miss");
+            bot.current = secondGrid.currentHits[0];
+            bot.prev_hit = false;
+            if (secondGrid.currentHits.length > 1) {
+                bot.back = true;
+                bot.num_misses++;
+            }
+            if (bot.case2) {
+                bot.special = true;
+                bot.case2 = false;
+            }
+            return false;
+        }
+    },
+
+    hasShipBeenSunk: function() {
+        if (bot.sizeOfShipSunk > 0) return true;
+        else return false;
+    }
+};
+
+
+let bot = {
+    back: false,
+    hunting: false,
+    prev_hit: false,
+    first_hit: false,
+    special: false,
+    case1: false,
+    case2: false,
+    num_misses: 0,
+    back_count: 0,
+    randPool: [],
+    nextMove: [],
+    attempted: [],
+    specialHits: [],
+    direction: "",
+    current: 0,
+    numAttemptsAfterHit: 0,
+    sizeOfShipSunk: 0,
+    randomGen: function(size) {
+        return Math.floor(Math.random() * size);
+    },
+    select: function() {
+        if (bot.hunting) {
+            bot.battleLogic();
+        } else if (bot.special) {
+            bot.specialCase();
+        } else {
+            // grab a random number from the pool and increase attempts
+            bot.current = bot.randPool[bot.randomGen(bot.randPool.length)];
+            bot.attempted.push(bot.current);
+            bot.first_hit = true;
+            // remove current guess from the random pool and check if hit
+            bot.removeGuess(bot.randPool.indexOf(bot.current));
+            bot.hunting = secondGrid.checkAttempt(bot.current);
+        }
+        setTimeout(highlightBoard(), 50);
+    },
+
+    removeGuess: function(index) {
+        bot.randPool.splice(index, 1);
+    },
+
+    battleLogic: function() {
+        if (bot.first_hit) {
+            bot.createMoves();
+            bot.first_hit = false;
+        }
+
+        if (bot.num_misses > 1) {
+            bot.specialCase();
+        } else if (bot.back) {
+            bot.back = false;
+            bot.backy();
+            bot.deployHit(bot.current);
+        } else if (bot.prev_hit) {
+            bot.continueHits();
+            bot.deployHit(bot.current);
+            console.log(bot.prev_hit);
+        } else {
+            bot.direction = bot.nextMove.pop();
+            console.log(bot.direction + " " + bot.current);
+            bot.getNumericalDirection(bot.direction);
+            bot.prev_hit = bot.deployHit(bot.current);
+            console.log(bot.prev_hit);
+        }
+    },
+
+    deployHit: function(hit) {
+        if (bot.special) {
+            bot.specialCase();
+        } else {
+            bot.attempted.push(hit);
+            bot.removeGuess(bot.randPool.indexOf(hit));
+            return secondGrid.checkAttempt(hit);
+        }
+    },
+
+    createMoves: function() {
+        if(bot.current == 1) {
+            bot.getRandomMoves(["right", "down"]);
+        }
+        else if(bot.current == 10) {
+            bot.getRandomMoves(["left", "down"]);
+        }
+        else if(bot.current == 91) {
+            bot.getRandomMoves(["up", "right"]);
+        }
+        else if(bot.current == 100) {
+            bot.getRandomMoves(["left", "up"]);
+        }
+        else if(!(bot.current % 10)){
+            bot.getRandomMoves(["up", "down", "left"]);
+        }
+        else if(bot.current < 10) {
+            bot.getRandomMoves(["right", "down", "left"]);
+        }
+        else if(bot.current % 10 == 1) {
+            bot.getRandomMoves(["up", "right", "down"]);
+        }
+        else if(bot.current > 91) {
+            bot.getRandomMoves(["up", "right", "left"]);
+        }
+        else {
+            bot.getRandomMoves(["up", "right", "down", "left"]);
+        }
+    },
+
+    getRandomMoves: function(possibleMoves) {
+        while (possibleMoves.length != 0) {
+            // pick a random direction
+            let dir = bot.randomGen(possibleMoves.length);
+            // Go Up
+            if (possibleMoves[dir] == "up") {
+                if (bot.randPool.some(function(x) { return x == bot.current - 10; })) {
+                    bot.nextMove.push("up");
+                }
+            }
+            // Go right
+            if (possibleMoves[dir] == "right") {
+                if (bot.randPool.some(function(x) { return x == bot.current + 1; })) {
+                    bot.nextMove.push("right");
+                }
+            }
+            // Go down
+            if (possibleMoves[dir] == "down") {
+                if (bot.randPool.some(function(x) { return x == bot.current + 10; })) {
+                    bot.nextMove.push("down");
+                }
+            }
+            // Go left
+            if (possibleMoves[dir] == "left") {
+                if (bot.randPool.some(function(x) { return x == bot.current - 1; })) {
+                    bot.nextMove.push("left");
+                }
+            }
+            possibleMoves.splice(dir, 1);
+        }
+    },
+
+    getNumericalDirection: function(dir) {
+        if (dir == "up") bot.current -= 10;
+        if (dir == "right") bot.current += 1;
+        if (dir == "down") bot.current += 10;
+        if (dir == "left") bot.current -= 1;
+        console.log(bot.current + " attempted " + bot.attempted);
+        // check if already used
+        if (bot.attempted.some(function(x) { return x == bot.current; }) && bot.specialHits.length == 0) {
+            bot.current = secondGrid.currentHits[0];
+            if (bot.back_count > 1) bot.special = true;
+            else bot.backy();
+        }
+        return false;
+    },
+
+    continueHits: function() {
+        console.log("cont " + bot.direction);
+        if (bot.direction == "up") {
+            if (bot.checkLocation("up")) {
+                bot.direction = "down";
+                return bot.getNumericalDirection(bot.direction);
+            } else return bot.getNumericalDirection(bot.direction);
+        }
+        if (bot.direction == "right") {
+            if (bot.checkLocation("right")) {
+                bot.direction = "left";
+                return bot.getNumericalDirection(bot.direction);
+            } else return bot.getNumericalDirection(bot.direction);
+        }
+        if (bot.direction == "down") {
+            if (bot.checkLocation("down")) {
+                bot.direction = "up";
+                return bot.getNumericalDirection(bot.direction);
+            } else return bot.getNumericalDirection(bot.direction);
+        }
+        if (bot.direction == "left") {
+            if (bot.checkLocation("left")) {
+                bot.direction = "right";
+                return bot.getNumericalDirection(bot.direction);
+            } else return bot.getNumericalDirection(bot.direction);
+        }
+    },
+
+    backy: function() {
+        bot.back_count++;
+        if (bot.direction == "up") {
+            bot.direction = "down";
+            return bot.continueHits();
+        }
+        if (bot.direction == "right") {
+            bot.direction = "left";
+            return bot.continueHits();
+        }
+        if (bot.direction == "down") {
+            bot.direction = "up";
+            return bot.continueHits();
+        }
+        if (bot.direction == "left") {
+            bot.direction = "right";
+            return bot.continueHits();
+        }
+    },
+
+    checkLocation: function(dir) {
+        if (dir == "up") {
+            if (bot.current < 11) return true
+        }
+        if (dir == "right") {
+            if (bot.current % 10 == 0) return true
+        }
+        if (dir == "down") {
+            if (bot.current > 90) return true
+        }
+        if (dir == "left") {
+            if (bot.current % 10 == 1) return true
+        }
+        return false;
+    },
+
+    specialCase: function() {
+        bot.num_misses = bot.back_count = bot.nextMove.length = 0;
+        if (bot.case1) {
+            bot.prev_hit = true;
+            if (bot.getNewCurrent(bot.direction)) {
+                secondGrid.currentHits.length = 0;
+                secondGrid.currentHits.push(bot.current);
+                bot.first_hit = true;
+                bot.prev_hit = false;
+            }
+            bot.special = bot.case1 = bot.back = false;
+            bot.hunting = true;
+            bot.sizeOfShipSunk = 0;
+            bot.battleLogic();
+        } else {
+            if (bot.specialHits.length == 0) {
+                for(let i = 0; i < secondGrid.currentHits.length; i++) {
+                    bot.specialHits.push(secondGrid.currentHits[i]);
+                }
+                secondGrid.currentHits.length = 0;
+            }
+            bot.current = bot.specialHits.pop();
+            secondGrid.currentHits.push(bot.current);
+            bot.special = bot.back = bot.prev_hit = false;
+            bot.first_hit = bot.hunting = true;
+            bot.battleLogic();
+        }
+    },
+
+    getNewCurrent: function(direction) {
+        let difference = secondGrid.currentHits.length - bot.sizeOfShipSunk;
+        if (bot.direction == "up") {
+            bot.direction = "down";
+            if (difference > 1) {
+                bot.current += 10 * (secondGrid.currentHits.length - 1);
+                let temp = bot.current + (10 * (difference - 1));
+                secondGrid.currentHits.length = 0;
+                for (let i = 0; i < difference; i++) {
+                    secondGrid.currentHits.push(temp);
+                    temp += 10;
+                }
+                bot.case2 = true;
+                return false;
+            }
+            bot.current += 10 * bot.sizeOfShipSunk;
+            return true;
+        }
+        if (bot.direction == "right") {
+            bot.direction = "left";
+            if (difference > 1) {
+                bot.current -= secondGrid.currentHits.length - 1;
+                let temp = bot.current + (difference - 1);
+                secondGrid.currentHits.length = 0;
+                for (let i = 0; i < difference; i++) {
+                    secondGrid.currentHits.push(temp);
+                    temp -= 1;
+                }
+                bot.case2 = true;
+                return false;
+            }
+            bot.current -= bot.sizeOfShipSunk;
+            return true;
+        }
+        if (bot.direction == "down") {
+            bot.direction = "up";
+            if (difference > 1) {
+                bot.current -= 10 * (secondGrid.currentHits.length - 1);
+                let temp = bot.current - (10 * (difference - 1));
+                secondGrid.currentHits.length = 0;
+                for (let i = 0; i < difference; i++) {
+                    secondGrid.currentHits.push(temp);
+                    temp -= 10;
+                }
+                bot.case2 = true;
+                return false;
+            }
+            bot.current -= 10 * bot.sizeOfShipSunk;
+            return true;
+        }
+        if (bot.direction == "left") {
+            bot.direction = "right";
+            if (difference > 1) {
+                bot.current += secondGrid.currentHits.length - 1;
+                let temp = bot.current - (difference - 1);
+                secondGrid.currentHits.length = 0;
+                for (let i = 0; i < difference; i++) {
+                    secondGrid.currentHits.push(temp);
+                    temp += 1;
+                }
+                bot.case2 = true;
+                return false;
+            }
+            bot.current += bot.sizeOfShipSunk;
+            return true;
+        }
+    }
+};
+
+function gameInit() {
+    for (let i = 1; i <= 100; i++) {
+        // The number and letter designators
+        if (i < 11) {
+            $(".thirdPanel").prepend("<span class='topRow'>" + Math.abs(i - 11) + "</span>");
+            $(".secondPanel").prepend("<span class='topRow'>" + Math.abs(i - 11) + "</span>");
+            $(".grid").append("<li class='squares offset1 " + i + "'><span class='round'></span></li>");
+        } else {
+            $(".grid").append("<li class='squares offset2 " + i + "'><span class='round'></span></li>");
+        }
+        if (i == 11) {
+            $(".thirdPanel").prepend("<span class='topRow hidezero'>" + Math.abs(i - 11) + "</span>");
+            $(".secondPanel").prepend("<span class='topRow hidezero'>" + Math.abs(i - 11) + "</span>");
+        }
+        if (i > 90) {
+            $(".thirdPanel").append("<span class='leftColumn'>" +
+                String.fromCharCode(97 + (i - 91)).toUpperCase() + "</span>");
+            $(".secondPanel").append("<span class='leftColumn'>" +
+                String.fromCharCode(97 + (i - 91)).toUpperCase() + "</span>");
+        }
+    }
+    $(".text").text(output.welcome);
+    $(".one").on("click", function() {
+        $(".text").text(output.player1);
+        gameSetup(this);
+    });
+    $(".new").on("click", function(e) {
+        $(".text").text(output.player1);
+        gameSetup(this);
+    });
+}
+
+// Start the game setup
+// $(document).ready(function() {
+//
+// });
+
+function gameSetup(t) {
+    $(t).off() && $(".two").off();
+    $(".one").addClass("self").removeClass("one").text("Place My Own");
+    $(".new").addClass("random").removeClass("multi").text("Random");
+
+    $(".self").off("click").on("click", function() {
+        $(".text").text(output.self);
+        selfSetup(playerGrid);
+    });
+    $(".random").off("click").on("click", function() {
+        playerGrid = new Ships("Player 1");
+        playerGrid.initShips();
+        randomSetup(playerGrid);
+    });
+}
+
+
+function selfSetup() {
+    $(".self").addClass("horz").removeClass("self").text("Horizontal");
+    $(".random").addClass("vert").removeClass("random").text("Vertical");
+
+    // initialize the ships
+    playerGrid = new Ships("Player 1");
+    playerGrid.initShips();
+    // light up the players ship board for placement
+    placeShip(playerGrid.ships[playerGrid.currentShip], playerGrid);
+}
+
+function randomSetup(ships) {
+    // Decide if the ship will be placed vertically or horizontally
+    // if 0 then ship will be places horizontally if 1 vertically
+    // setShip(location, ship, "vert", ships, "self");
+    if (ships.currentShip >= ships.numOfShips) return; // regard against undefined length
+
+    let orien = Math.floor((Math.random() * 10) + 1);
+    let length = ships.ships[ships.currentShip].length;
+
+    if (orien < 6) {
+        // create a random number betwee 1 and 6
+        let shipOffset = 11 - ships.ships[ships.currentShip].length;
+        let horiz = Math.floor((Math.random() * shipOffset) + 1);
+        let vert = Math.floor(Math.random() * 9);
+        let randNum = parseInt(String(vert) + String(horiz));
+        if (ships == cpuGrid) checkOverlap(randNum, length, "horz", ships);
+        else setShip(randNum, ships.ships[ships.currentShip], "horz", ships, "random");
+    } else {
+        let shipOffset = 110 - (ships.ships[ships.currentShip].length * 10);
+        let randNum = Math.floor((Math.random() * shipOffset) + 1);
+
+        if (ships == cpuGrid) checkOverlap(randNum, length, "vert", ships);
+        else setShip(randNum, ships.ships[ships.currentShip], "vert", ships, "random");
+    }
+}
+
+function createcpuGrid() {
+    // create a random ship placement for the cpu's ships
+    cpuGrid = new Ships("CPU");
+    cpuGrid.initShips();
+    randomSetup(cpuGrid);
+}
+
+
+function placeShip(ship, ships) {
+    // check orientation of ship and highlight accordingly
+    let orientation = "horz";
+    $(".vert").off("click").on("click", function() {
+        orientation = "vert";
+    });
+    $(".horz").off("click").on("click", function() {
+        orientation = "horz";
+    });
+    // when the user enters the grid have the ships lenght highlighted with the
+    // ships length.
+    $(".secondPanel").find(".squares").off("mouseenter").on("mouseenter", function() {
+        let num = $(this).attr('class').slice(15);
+        //
+        if (orientation == "horz") displayShipHorz(parseInt(num), ship, this, ships);
+        else displayShipVert(parseInt(num), ship, this, ships);
+    });
+}
+
+
+function displayShipHorz(location, ship, point, ships) {
+    let endPoint = location + ship.length - 2;
+    if (!(endPoint % 10 >= 0 && endPoint % 10 < ship.length - 1)) {
+        for (let i = location; i < (location + ship.length); i++) {
+            $(".secondPanel ." + i).addClass("highlight");
+        }
+        $(point).off("click").on("click", function() {
+            setShip(location, ship, "horz", ships, "self");
+        });
+    }
+    $(point).off("mouseleave").on("mouseleave", function() {
+        removeShipHorz(location, ship.length);
+    });
+}
+
+function displayShipVert(location, ship, point, ships) {
+    let endPoint = (ship.length * 10) - 10;
+    let inc = 0;
+    if (location + endPoint <= 100) {
+        for (let i = location; i < (location + ship.length); i++) {
+            $(".secondPanel ." + (location + inc)).addClass("highlight");
+            inc = inc + 10;
+        }
+        $(point).off("click").on("click", function() {
+            setShip(location, ship, "vert", ships, "self");
+        });
+    }
+    $(point).off("mouseleave").on("mouseleave", function() {
+        removeShipVert(location, ship.length);
+    });
+}
+
+function removeShipHorz(location, length) {
+    for (let i = location; i < location + length; i++) {
+        $(".secondPanel ." + i).removeClass("highlight");
+    }
+}
+
+function removeShipVert(location, length) {
+    let inc = 0;
+    for (let i = location; i < location + length; i++) {
+        $(".secondPanel ." + (location + inc)).removeClass("highlight");
+        inc = inc + 10;
+    }
+}
+
+function setShip(location, ship, orientation, genericFleet, type) {
+    if (!(checkOverlap(location, ship.length, orientation, genericFleet))) {
+        if (orientation == "horz") {
+            genericFleet.ships[genericFleet.currentShip].populateHorzHits(location);
+            $(".text").text(output.placed(genericFleet.ships[genericFleet.currentShip].name + " has"));
+            for (let i = location; i < (location + ship.length); i++) {
+                $(".secondPanel ." + i).addClass(genericFleet.ships[genericFleet.currentShip].name);
+                $(".secondPanel ." + i).children().removeClass("round");
+            }
+            if (++genericFleet.currentShip == genericFleet.numOfShips) {
+                $(".text").text(output.placed("ships have"));
+                $(".secondPanel").find(".squares").off("mouseenter");
+                // clear the call stack
+                setTimeout(createcpuGrid, 100);
+            } else {
+                if (type == "random") randomSetup(genericFleet);
+                else placeShip(genericFleet.ships[genericFleet.currentShip], genericFleet);
+            }
+
+        } else {
+            let inc = 0;
+            genericFleet.ships[genericFleet.currentShip].populateVertHits(location);
+            $(".text").text(output.placed(genericFleet.ships[genericFleet.currentShip].name + " has"));
+            for (let i = location; i < (location + ship.length); i++) {
+                $(".secondPanel ." + (location + inc)).addClass(genericFleet.ships[genericFleet.currentShip].name);
+                $(".secondPanel ." + (location + inc)).children().removeClass("round");
+                inc = inc + 10;
+            }
+            if (++genericFleet.currentShip == genericFleet.numOfShips) {
+                $(".text").text(output.placed("ships have"));
+                $(".secondPanel").find(".squares").off("mouseenter");
+                // clear the call stack
+                setTimeout(createcpuGrid, 100);
+            } else {
+                if (type == "random") randomSetup(genericFleet);
+                else placeShip(genericFleet.ships[genericFleet.currentShip], genericFleet);
+            }
+        }
+    } else {
+        if (type == "random") randomSetup(genericFleet);
+        else $(".text").text(output.overlap);
+    }
+} // end of setShip()
+
+function checkOverlap(location, length, orientation, genFleet) {
+    let loc = location;
+    if (orientation == "horz") {
+        let end = location + length;
+        for (; location < end; location++) {
+            for (let i = 0; i < genFleet.currentShip; i++) {
+                if (genFleet.ships[i].checkLocation(location)) {
+                    if (genFleet == cpuGrid) randomSetup(genFleet);
+                    else return true;
+                }
+            } // end of for loop
+        } // end of for loop
+    } else {
+        let end = location + (10 * length);
+        for (; location < end; location += 10) {
+            for (let i = 0; i < genFleet.currentShip; i++) {
+                if (genFleet.ships[i].checkLocation(location)) {
+                    if (genFleet == cpuGrid) randomSetup(genFleet);
+                    else return true;
+                }
+            }
+        }
+    } // end of if/else
+    if (genFleet == cpuGrid && genFleet.currentShip < genFleet.numOfShips) {
+        if (orientation == "horz") genFleet.ships[genFleet.currentShip++].populateHorzHits(loc);
+        else genFleet.ships[genFleet.currentShip++].populateVertHits(loc);
+        if (genFleet.currentShip == genFleet.numOfShips) {
+            // clear the call stack
+            setTimeout(startGame, 500);
+        } else randomSetup(genFleet);
+    }
+    return false;
+} // end of checkOverlap()
+
+
+
+
